@@ -1060,7 +1060,7 @@ ignore-unknown-option block-outside-dns
 setenv opt block-outside-dns # Prevent Windows 10 DNS leak
 auth-user-pass
 static-challenge "Enter 2FA Authenticator code:" 1
-dhcp-option DOMAIN-ROUTE
+dhcp-option DOMAIN-ROUTE .
 pull-filter ignore redirect-gateway
 verb 3" >>/etc/openvpn/client-template.txt
 

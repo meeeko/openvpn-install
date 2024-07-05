@@ -4,6 +4,14 @@
 # Secure OpenVPN server installer for Debian, Ubuntu, CentOS, Amazon Linux 2, Fedora, Oracle Linux 8, Arch Linux, Rocky Linux and AlmaLinux.
 # https://github.com/angristan/openvpn-install
 
+CLIENTDIR="/opt/openvpn/clients"
+
+R="\e[0;91m"
+G="\e[0;92m"
+W="\e[0;97m"
+B="\e[1m"
+C="\e[0m"
+
 function isRoot() {
 	if [ "$EUID" -ne 0 ]; then
 		return 1
@@ -905,6 +913,10 @@ verb 3" >>/etc/openvpn/server.conf
 	mkdir -p /etc/openvpn/ccd
 	# Create log dir
 	mkdir -p /var/log/openvpn
+	# Create google auth dir
+	mkdir -p /opt/openvpn/google-auth
+	# Create client dir
+	mkidr -p "${CLIENTDIR}"
 
 	# Enable routing
 	echo 'net.ipv4.ip_forward=1' >/etc/sysctl.d/99-openvpn.conf
@@ -1110,27 +1122,34 @@ function newClient() {
         PW=$(pwgen 15 1)
         echo "${PW}" > "${CLIENTDIR}/${CLIENT}/pass"
 
+		# create system account for new VPN user, add password to it (this is needed for google auth pam module to authenticate user)
+		user_exists=$(grep -c "^${CLIENT}:" /etc/passwd)
+		if [ $user_exists -eq 0 ]
+		then
+    		useradd -m -d "${CLIENTDIR}/${CLIENT}" --shell /sbin/nologin "${CLIENT}" || { echo -e "${R}${B}Error creating system account for ${CLIENT} ${C}"; exit 1; }    
+    	fi
+
 		cd /etc/openvpn/easy-rsa/ || return
-		echo "${PW}"; echo "${PW}" | ./easyrsa build-client-full "${CLIENT}"
+		./easyrsa --batch build-client-full "$CLIENT"
 		echo -e "${G}Client $CLIENT added.${C}"
 	fi
 
-	# Home directory of the user, where the client configuration will be written
-	if [ -e "/home/${CLIENT}" ]; then
-		# if $1 is a user name
-		homeDir="/home/${CLIENT}"
-	elif [ "${SUDO_USER}" ]; then
-		# if not, use SUDO_USER
-		if [ "${SUDO_USER}" == "root" ]; then
-			# If running sudo as root
-			homeDir="/root"
-		else
-			homeDir="/home/${SUDO_USER}"
-		fi
-	else
-		# if not SUDO_USER, use /root
-		homeDir="/root"
-	fi
+	# # Home directory of the user, where the client configuration will be written
+	# if [ -e "/home/${CLIENT}" ]; then
+	# 	# if $1 is a user name
+	# 	homeDir="/home/${CLIENT}"
+	# elif [ "${SUDO_USER}" ]; then
+	# 	# if not, use SUDO_USER
+	# 	if [ "${SUDO_USER}" == "root" ]; then
+	# 		# If running sudo as root
+	# 		homeDir="/root"
+	# 	else
+	# 		homeDir="/home/${SUDO_USER}"
+	# 	fi
+	# else
+	# 	# if not SUDO_USER, use /root
+	# 	homeDir="/root"
+	# fi
 
 	# Determine if we use tls-auth or tls-crypt
 	if grep -qs "^tls-crypt" /etc/openvpn/server.conf; then
@@ -1140,7 +1159,7 @@ function newClient() {
 	fi
 
 	# Generates the custom client.ovpn
-	cp /etc/openvpn/client-template.txt "$homeDir/$CLIENT.ovpn"
+	cp /etc/openvpn/client-template.txt "${CLIENTDIR}/${CLIENT}/${CLIENT}.ovpn"
 	{
 		echo "<ca>"
 		cat "/etc/openvpn/easy-rsa/pki/ca.crt"
@@ -1167,10 +1186,10 @@ function newClient() {
 			echo "</tls-auth>"
 			;;
 		esac
-	} >>"$homeDir/$CLIENT.ovpn"
+	} >>"${CLIENTDIR}/${CLIENT}/${CLIENT}.ovpn"
 
-	cd /opt/openvpn/google-auth || mkdir /opt/openvpn && mkdir /opt/openvpn/google-auth
-	cd /opt/openvpn/google-auth || return 1
+	chown -R root:root "${CLIENTDIR}/${CLIENT}"
+    chmod -R 600 "${CLIENTDIR}/${CLIENT}"
 
 	### setup Google Authenticator
     google-authenticator -t -d -f -r 3 -R 30 -W -C -s "/opt/openvpn/google-auth/${CLIENT}" || { echo -e "${R}${B}error generating QR code${C}"; exit 1; }
@@ -1178,7 +1197,7 @@ function newClient() {
     qrencode -t PNG -o "/opt/openvpn/google-auth/${CLIENT}.png" "otpauth://totp/${CLIENT}@${HOST}?secret=${secret}&issuer=openvpn" || { echo -e "${R}${B}Error generating PNG${C}"; exit 1; }
 
 	echo ""
-	echo "The configuration file has been written to $homeDir/$CLIENT.ovpn."
+	echo -e "${W}The configuration file has been written to ${CLIENTDIR}/${CLIENT}/${CLIENT}.ovpn${C}"
 	echo "Download the .ovpn file and import it in your OpenVPN client."
 
 	exit 0
@@ -1207,15 +1226,26 @@ function revokeClient() {
 	./easyrsa --batch revoke "$CLIENT"
 	EASYRSA_CRL_DAYS=3650 ./easyrsa gen-crl
 	rm -f /etc/openvpn/crl.pem
+	rm -f "pki/reqs/${CLIENT}.req*"
+    rm -f "pki/private/${CLIENT}.key*"
+    rm -f "pki/issued/${CLIENT}.crt*"
 	cp /etc/openvpn/easy-rsa/pki/crl.pem /etc/openvpn/crl.pem
 	chmod 644 /etc/openvpn/crl.pem
 	find /home/ -maxdepth 2 -name "$CLIENT.ovpn" -delete
 	rm -f "/root/$CLIENT.ovpn"
+	rm -f "${CLIENTDIR}/${CLIENT}/${CLIENT}.ovpn"
 	sed -i "/^$CLIENT,.*/d" /etc/openvpn/ipp.txt
 	cp /etc/openvpn/easy-rsa/pki/index.txt{,.bk}
 
+	sed -i "/CN=${CLIENT}$/d" /etc/openvpn/easy-rsa/pki/index.txt
+
+	# remove user OS acct that was created by OpenVPN manage.sh script
+    id "${CLIENT}" && userdel -r -f "${CLIENT}"
+    
+    rm -rf "${CLIENTDIR:?}/${CLIENT:?}"
+
 	echo ""
-	echo "Certificate for client $CLIENT revoked."
+    echo -e "${G}VPN access for $CLIENT is revoked${C}"
 }
 
 function removeUnbound() {

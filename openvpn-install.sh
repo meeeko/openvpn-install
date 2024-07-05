@@ -1121,6 +1121,7 @@ function newClient() {
         mkdir "${CLIENTDIR}/${CLIENT}"
         PW=$(pwgen 15 1)
         echo "${PW}" > "${CLIENTDIR}/${CLIENT}/pass"
+		echo -e "generated password is: ${PW} - enter this below in PEM dialog"
 
 		# create system account for new VPN user, add password to it (this is needed for google auth pam module to authenticate user)
 		user_exists=$(grep -c "^${CLIENT}:" /etc/passwd)
@@ -1128,6 +1129,10 @@ function newClient() {
 		then
     		useradd -m -d "${CLIENTDIR}/${CLIENT}" --shell /sbin/nologin "${CLIENT}" || { echo -e "${R}${B}Error creating system account for ${CLIENT} ${C}"; exit 1; }    
     	fi
+
+		# update system user pw, remove pw expiration
+    	echo "${CLIENT}:${PW}" | chpasswd
+    	chage -m 0 -M 99999 -I -1 -E -1 "${CLIENT}"
 
 		cd /etc/openvpn/easy-rsa/ || return
 		./easyrsa --batch build-client-full "$CLIENT"

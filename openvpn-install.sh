@@ -1046,6 +1046,10 @@ tls-version-min 1.2
 tls-cipher $CC_CIPHER
 ignore-unknown-option block-outside-dns
 setenv opt block-outside-dns # Prevent Windows 10 DNS leak
+auth-user-pass
+static-challenge "Enter 2FA Authenticator code:" 1
+dhcp-option DOMAIN-ROUTE
+pull-filter ignore redirect-gateway
 verb 3" >>/etc/openvpn/client-template.txt
 
 	if [[ $COMPRESSION_ENABLED == "y" ]]; then
@@ -1148,6 +1152,14 @@ function newClient() {
 			;;
 		esac
 	} >>"$homeDir/$CLIENT.ovpn"
+
+	cd /opt/openvpn/google-auth || mkdir /opt/openvpn && mkdir /opt/openvpn/google-auth
+	cd /opt/openvpn/google-auth || return 1
+
+	### setup Google Authenticator
+    google-authenticator -t -d -f -r 3 -R 30 -W -C -s "/opt/openvpn/google-auth/${CLIENT}" || { echo -e "${R}${B}error generating QR code${C}"; exit 1; }
+    secret=$(head -n 1 "/opt/openvpn/google-auth/${CLIENT}")
+    qrencode -t PNG -o "/opt/openvpn/google-auth/${CLIENT}.png" "otpauth://totp/${CLIENT}@${HOST}?secret=${secret}&issuer=openvpn" || { echo -e "${R}${B}Error generating PNG${C}"; exit 1; }
 
 	echo ""
 	echo "The configuration file has been written to $homeDir/$CLIENT.ovpn."

@@ -4,7 +4,7 @@
 # Secure OpenVPN server installer for Debian, Ubuntu, CentOS, Amazon Linux 2, Fedora, Oracle Linux 8, Arch Linux, Rocky Linux and AlmaLinux.
 # https://github.com/angristan/openvpn-install
 
-CLIENTDIR="/opt/openvpn/clients"
+CLIENTDIR="/etc/openvpn/clients"
 
 R="\e[0;91m"
 G="\e[0;92m"

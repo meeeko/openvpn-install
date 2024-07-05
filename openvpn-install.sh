@@ -916,7 +916,7 @@ verb 3" >>/etc/openvpn/server.conf
 	# Create google auth dir
 	mkdir -p /opt/openvpn/google-auth
 	# Create client dir
-	mkidr -p "${CLIENTDIR}"
+	mkdir -p "${CLIENTDIR}"
 
 	# Enable routing
 	echo 'net.ipv4.ip_forward=1' >/etc/sysctl.d/99-openvpn.conf
